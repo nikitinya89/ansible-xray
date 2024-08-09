@@ -1,0 +1,144 @@
+---
+- name: Set up xray
+  hosts: xray
+  become: true
+  gather_facts: false
+  vars:
+    xray_version: "1.8.23"
+    domain_name: "YOUR_DOMAIN_NAME"
+  tasks:
+
+    - name: Create xray user
+      ansible.builtin.user:
+        name: xray
+        system: true
+        shell: /sbin/nolgin
+        create_home: false
+
+    - name: Install packages
+      apt:
+        name:
+        - unzip
+        - nginx
+        - certbot
+        state: present
+        update_cache: true
+
+    - name: Download XRay
+      ansible.builtin.get_url:
+        url: https://github.com/XTLS/Xray-core/releases/download/v{{ xray_version }}/Xray-linux-64.zip
+        dest: /usr/local/src/Xray-linux-64.zip
+        mode: '0644'
+      register: download_xray
+
+    - name: Create folder
+      ansible.builtin.file:
+        path: /opt/xray
+        state: directory
+        mode: "0755"
+
+    - name: Unzip XRay archive
+      ansible.builtin.unarchive:
+        src: /usr/local/src/Xray-linux-64.zip
+        dest: /opt/xray/
+        remote_src: yes
+      when: download_xray.changed
+
+    - name: Create systemd unit
+      ansible.builtin.template:
+        src: xray.service
+        dest: /usr/lib/systemd/system/xray.service
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Check if XRay config exists
+      ansible.builtin.stat:
+        path: /opt/xray/config.json
+      register: config_check
+
+    - name: Generate uuid
+      ansible.builtin.shell: uuidgen
+      register: uuidgen
+      when: not config_check.stat.exists
+
+    - name: Create XRay config
+      ansible.builtin.template:
+        src: config.json.j2
+        dest: /opt/xray/config.json
+        owner: root
+        group: root
+        mode: "0644"
+      vars:
+        uuid: "{{ uuidgen.stdout }}"
+      when: not config_check.stat.exists
+
+    - name: Remove default site
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+          - "/etc/nginx/sites-available/default"
+          - "/etc/nginx/sites-enabled/default"
+
+    - name: Add nginx site
+      ansible.builtin.template:
+        src: 01-xray.conf.j2
+        dest: /etc/nginx/sites-available/01-xray.conf
+        mode: "0644"
+
+    - name: Enable nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/01-xray.conf
+        dest: /etc/nginx/sites-enabled/01-xray.conf
+        state: link
+
+    - name: Stop nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: stopped
+
+    - name: Create letsencrypt certificates
+      ansible.builtin.shell: certbot certonly --standalone --preferred-challenges http -d {{ domain_name }} --agree-tos --register-unsafely-without-email --non-interactive
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}/privkey.pem
+      register: certs
+
+    - name: debug
+      debug:
+        var: certs
+
+    - name:
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: xray
+        mode: "0650"
+        recurse: true
+      loop:
+        - /etc/letsencrypt/live
+        - /etc/letsencrypt/archive
+
+    - name: Set capabilities
+      ansible.builtin.shell: setcap 'cap_net_bind_service=+ep' /opt/xray/xray
+
+    - name: Copy certbot systemd units
+      ansible.builtin.template:
+        src: "{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+      loop:
+        - certbot.service
+        - certbot.timer
+
+    - name: Start services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: true
+        daemon_reload: true
+      loop:
+        - xray.service
+        - nginx.service
+        - certbot.timer

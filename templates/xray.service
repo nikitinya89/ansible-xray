@@ -1,0 +1,14 @@
+[Unit]
+Description=XRay
+
+[Service]
+User=xray
+Group=xray
+Type=simple
+Restart=on-failure
+RestartSec=30
+WorkingDirectory=/opt/xray
+ExecStart=/opt/xray/xray run -c /opt/xray/config.json
+
+[Install]
+WantedBy=multi-user.target
