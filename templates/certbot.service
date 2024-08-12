@@ -3,4 +3,4 @@ Description=Let's Encrypt renewal
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/certbot renew --quiet --agree-tos --post-hook "systemctl reload xray.service"
+ExecStart=/usr/bin/certbot renew --quiet --agree-tos --post-hook "systemctl restart xray.service"
