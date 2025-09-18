@@ -7,8 +7,8 @@ Group=xray
 Type=simple
 Restart=on-failure
 RestartSec=30
-WorkingDirectory=/opt/xray
-ExecStart=/opt/xray/xray run -c /opt/xray/config.json
+WorkingDirectory={{ xray_path }}
+ExecStart={{ xray_path }}/xray run -c {{ xray_path }}/config.json
 
 [Install]
 WantedBy=multi-user.target
