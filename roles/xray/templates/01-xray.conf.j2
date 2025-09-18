@@ -1,6 +1,6 @@
 server {
-        listen 127.0.0.1:8080 default_server;
-        listen [::1]:8080 default_server;
+        listen 127.0.0.1:{{ nginx_port }} default_server;
+        listen [::1]:{{ nginx_port }} default_server;
 
         root /var/www/html;
         index index.html index.htm index.nginx-debian.html;

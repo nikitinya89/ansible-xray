@@ -1,0 +1,7 @@
+---
+# defaults file for xray
+xray_version: 25.9.11
+security: reality
+reality_site: www.microsoft.com
+xray_path: /opt/xray
+nginx_port: 8080

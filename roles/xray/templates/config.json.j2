@@ -6,6 +6,51 @@
     "rules": [],
     "domainStrategy": "AsIs"
   },
+{% if security == 'reality' %}
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "tag": "vless_tls",
+      "settings": {
+        "clients": [
+          {
+            "id": "{{ uuid }}",
+            "email": "user1@myserver",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+		"realitySettings": {
+			"show": false,
+			"dest": "{{ reality_site }}:443",
+			"xver": 0,
+			"serverNames": [
+				"{{ reality_site }}"
+			],
+			"privateKey": "{{ xray_private_key }}",
+			"minClientVer": "",
+			"maxClientVer": "",
+			"maxTimeDiff": 0,
+			"shortIds": [
+				"{{ short_id }}"
+			]
+		}
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    }
+  ],
+{% elif security == 'tls' %}
   "inbounds": [
     {
       "port": 443,
@@ -22,11 +67,11 @@
         "decryption": "none",
         "fallbacks": [
           {
-            "path": "/myverysecretpath",
+            "path": "/{{ fallback_path }}",
             "dest": "@vless-ws"
           },
           {
-            "dest": "8080"
+            "dest": "{{ nginx_port }}"
           }
         ]
       },
@@ -71,11 +116,12 @@
         "network": "ws",
         "security": "none",
         "wsSettings": {
-          "path": "/myverysecretpath"
+          "path": "/{{ fallback_path }}"
         }
       }
     }
   ],
+{% endif %}
   "outbounds": [
     {
       "protocol": "freedom",

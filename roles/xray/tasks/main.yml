@@ -1,0 +1,135 @@
+---
+# tasks file for xray
+- name: Create xray user
+  ansible.builtin.user:
+    name: xray
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Install packages
+  apt:
+    name: unzip
+    state: present
+    update_cache: true
+
+- name: Create folder
+  ansible.builtin.file:
+    path: "{{ xray_path }}"
+    state: directory
+    mode: "0755"
+
+- name: Check Xray version
+  ansible.builtin.shell: "{{ xray_path }}/xray version | head -1 | awk '{print $2}'"
+  register: xray_installed_version
+  failed_when: false
+  changed_when: false
+
+- debug:
+    var: xray_installed_version.stdout
+
+- name: Download XRay
+  ansible.builtin.get_url:
+    url: https://github.com/XTLS/Xray-core/releases/download/v{{ xray_version }}/Xray-linux-64.zip
+    dest: /usr/local/src/Xray-linux-64.zip
+    mode: '0644'
+    force: true
+  register: download_xray
+  when: xray_installed_version != xray_version
+
+- name: Unzip XRay archive
+  ansible.builtin.unarchive:
+    src: /usr/local/src/Xray-linux-64.zip
+    dest: "{{ xray_path }}/"
+    remote_src: yes
+  when: download_xray.changed
+
+- name: Create systemd unit
+  ansible.builtin.template:
+    src: xray.service.j2
+    dest: /usr/lib/systemd/system/xray.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Check if XRay config exists
+  ansible.builtin.stat:
+    path: "{{ xray_path }}/config-{{ security }}.json"
+  register: config_check
+
+- name: Generate uuid
+  ansible.builtin.shell: "{{ xray_path }}/xray uuid"
+  register: uuid_gen
+  when: not config_check.stat.exists
+
+- name: Generate fallback path
+  ansible.builtin.shell: openssl rand -hex 32
+  register: fallback_path_gen
+  when: not config_check.stat.exists and security == 'tls'
+
+- name: Generate keys
+  ansible.builtin.shell: "{{ xray_path }}/xray x25519"
+  register: xray_keys
+  when: not config_check.stat.exists and security == 'reality'
+
+- name: Save public key
+  ansible.builtin.copy:
+    dest: "{{ xray_path }}/reality_pub_key"
+    content: "{{ xray_keys.stdout | regex_search('Password: (.*)', '\\1') | first }}"
+    owner: root
+    group: root
+    mode: '0600'
+  when: not config_check.stat.exists and security == 'reality'
+
+- name: Generate xray ShortID
+  ansible.builtin.shell: openssl rand -hex 8
+  register: short_id_gen
+  when: not config_check.stat.exists and security == 'reality'
+
+- name: Set fact for xray private_key
+  set_fact:
+    xray_private_key: "{{ xray_keys.stdout | regex_search('PrivateKey: (.*)', '\\1') | first }}"
+  when: not config_check.stat.exists and security == 'reality'
+
+- name: Set fact for xray ShortID
+  set_fact:
+    short_id: "{{ short_id_gen.stdout }}"
+  when: not config_check.stat.exists and security == 'reality'
+
+- name: Create XRay config
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ xray_path }}/config-{{ security }}.json"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    uuid: "{{ uuid_gen.stdout }}"
+    fallback_path: "{{ fallback_path_gen.stdout }}"
+  when: not config_check.stat.exists
+
+- name: Set active XRay config
+  ansible.builtin.file:
+    src: "/opt/xray/config-{{ security }}.json"
+    dest: "/opt/xray/config.json"
+    state: link
+    force: true
+  notify: Restart XRay
+
+- name: Configure nginx
+  include_tasks: nginx.yml
+  when: security == 'tls'
+
+- name: Allow xray to bind low ports
+  community.general.capabilities:
+    path: "{{ xray_path }}/xray"
+    capability: cap_net_bind_service=+ep
+    state: present
+
+- name: Start services
+  ansible.builtin.systemd:
+    name: xray.service
+    state: started
+    enabled: true
+    daemon_reload: true
+...

@@ -1,0 +1,3 @@
+security: tls
+domain_name: xray.example.com
+xray_version: 25.7.25

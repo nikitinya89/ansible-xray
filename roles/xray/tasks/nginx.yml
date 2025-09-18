@@ -1,0 +1,81 @@
+- name: Install packages
+  apt:
+    name:
+    - nginx
+    - certbot
+    state: present
+    update_cache: true
+
+- name: Stop nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: stopped
+
+- name: Remove default site
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+      - "/etc/nginx/sites-available/default"
+      - "/etc/nginx/sites-enabled/default"
+
+- name: Add nginx site
+  ansible.builtin.template:
+    src: 01-xray.conf.j2
+    dest: /etc/nginx/sites-available/01-xray.conf
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/01-xray.conf
+    dest: /etc/nginx/sites-enabled/01-xray.conf
+    state: link
+  notify: Reload nginx
+
+- name: Create letsencrypt certificates
+  ansible.builtin.shell: certbot certonly --standalone --preferred-challenges http -d {{ domain_name }} --agree-tos --register-unsafely-without-email --non-interactive
+  args:
+    creates: "/etc/letsencrypt/live/{{ domain_name }}/privkey.pem"
+  register: certs
+  notify: Reload nginx
+
+- name: debug
+  debug:
+    var: certs
+
+- name: Fix permissions for letsencrypt directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: xray
+    mode: "0650"
+    recurse: true
+  loop:
+    - /etc/letsencrypt/live
+    - /etc/letsencrypt/archive
+  notify: Reload nginx
+
+- name: Copy certbot systemd units
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - certbot.service
+    - certbot.timer
+
+- name: Start certbot
+  ansible.builtin.systemd:
+    name: certbot.timer
+    state: restarted
+    enabled: true
+    daemon_reload: true
+
+- name: Start nginx
+  ansible.builtin.systemd:
+    name: nginx.service
+    state: restarted
+    enabled: true
+    daemon_reload: true
